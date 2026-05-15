@@ -112,16 +112,16 @@
     ]
   },
   "codegenConfig": {
-    "name": "CappedScrollviewViewSpec",
-    "type": "all",
+    "name": "CappedScrollViewSpec",
+    "type": "modules",
     "jsSrcsDir": "src",
     "android": {
       "javaPackageName": "com.cappedscrollview"
     },
     "ios": {
-      "components": {
-        "CappedScrollviewView": {
-          "className": "CappedScrollviewView"
+      "modules": {
+        "CappedScrollView": {
+          "className": "CappedScrollView"
         }
       }
     }
@@ -165,7 +165,7 @@
     }
   },
   "create-react-native-library": {
-    "type": "fabric-view",
+    "type": "turbo-module",
     "languages": "kotlin-objc",
     "tools": [
       "eslint",
