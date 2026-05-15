@@ -10,7 +10,6 @@ import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.common.UIManagerType
 import com.facebook.react.views.scroll.ReactScrollView
-import java.lang.ref.WeakReference
 import java.lang.reflect.Field
 import kotlin.math.abs
 
@@ -24,7 +23,7 @@ class CappedScrollViewModule(reactContext: ReactApplicationContext) :
 
   override fun setMaxVelocity(reactTag: Double, maxVelocity: Double) {
     val tag = reactTag.toInt()
-    attemptInstall(tag, maxVelocity, attemptsRemaining = 30)
+    attemptInstall(tag, maxVelocity, attemptsRemaining = MAX_RESOLVE_ATTEMPTS)
   }
 
   private fun attemptInstall(tag: Int, value: Double, attemptsRemaining: Int) {
@@ -92,22 +91,17 @@ class CappedScrollViewModule(reactContext: ReactApplicationContext) :
       current.fraction = fraction
       return
     }
-    val decelerationRate = try {
-      view.reactScrollViewScrollState.decelerationRate
-    } catch (_: Throwable) {
-      DEFAULT_DECELERATION_RATE
-    }
-    val initialFriction = (1f - decelerationRate).coerceAtLeast(MIN_FRICTION)
-    val platformMax = android.view.ViewConfiguration.get(view.context)
-      .scaledMaximumFlingVelocity
-      .toDouble()
+    // The cap reference is 8000 dp/s — the same numeric value used on iOS,
+    // expressed in dp/pt so the two platforms produce the same scroll feel
+    // at the same `maxVelocity` value. Convert to physical pixels for the
+    // OverScroller (which accepts px/s).
+    val density = view.resources.displayMetrics.density
+    val referenceMaxPxPerSec = REFERENCE_MAX_DP_PER_SEC * density
     val replacement = CappedOverScroller(
       view.context,
       fraction,
-      initialFriction,
-      platformMax,
+      referenceMaxPxPerSec.toDouble(),
       current,
-      WeakReference(view),
     )
     try {
       baseField.set(view, replacement)
@@ -146,34 +140,27 @@ class CappedScrollViewModule(reactContext: ReactApplicationContext) :
   companion object {
     const val NAME = "CappedScrollView"
     private const val RETRY_DELAY_MS = 33L
-    private const val DEFAULT_DECELERATION_RATE = 0.985f
-    private const val MIN_FRICTION = 0.0001f
+    private const val MAX_RESOLVE_ATTEMPTS = 30
+    // Public 0..1 cap scale is anchored to 8000 dp/s (matches iOS's 8000 pt/s).
+    private const val REFERENCE_MAX_DP_PER_SEC = 8000f
     @Volatile private var scrollerFieldCache: Field? = null
     @Volatile private var rnScrollerFieldCache: Field? = null
   }
 }
 
 /**
- * OverScroller that caps peak fling velocity. The cap is a normalized
- * fraction in [0, 1] of the platform's max fling velocity. When the
- * requested fling velocity exceeds the cap, the velocity is clamped to
- * `platformMax * fraction` and friction is lowered proportionally so the
- * fling still covers a reasonable distance instead of stopping abruptly.
+ * OverScroller subclass that caps peak fling velocity at
+ * `referenceMax * fraction` (where `referenceMax` is 8000 dp/s converted to
+ * physical pixels, matching iOS's 8000 pt/s reference). The base RN/Android
+ * deceleration physics are otherwise left alone, so the resulting fling
+ * decelerates naturally from the clamped peak.
  */
 private class CappedOverScroller(
   context: android.content.Context,
   @Volatile var fraction: Double,
-  initialFriction: Float,
-  private val platformMax: Double,
+  private val referenceMaxPxPerSec: Double,
   val original: OverScroller?,
-  private val viewRef: WeakReference<ReactScrollView>,
 ) : OverScroller(context) {
-
-  @Volatile private var baseFriction: Float = initialFriction
-
-  init {
-    setFriction(initialFriction)
-  }
 
   override fun fling(
     startX: Int,
@@ -205,48 +192,14 @@ private class CappedOverScroller(
     super.fling(startX, startY, cx, cy, minX, maxX, minY, maxY)
   }
 
-  private fun refreshBaseFriction() {
-    val view = viewRef.get() ?: return
-    val rate = try {
-      view.reactScrollViewScrollState.decelerationRate
-    } catch (_: Throwable) {
-      return
-    }
-    baseFriction = (1f - rate).coerceAtLeast(MIN_FRICTION)
-  }
-
   private fun applyCap(velocityX: Int, velocityY: Int): Pair<Int, Int> {
-    refreshBaseFriction()
     val f = fraction.coerceIn(0.0, 1.0)
-    val base = baseFriction
-    if (f >= 1.0) {
-      // At 1.0 the cap equals the platform's own clamp — let the natural
-      // physics run, no friction adjustment.
-      setFriction(base)
-      return velocityX to velocityY
-    }
-    if (f <= 0.0) {
-      setFriction(base)
-      return 0 to 0
-    }
-    val cap = platformMax * f
+    if (f >= 1.0) return velocityX to velocityY
+    if (f <= 0.0) return 0 to 0
+    val cap = referenceMaxPxPerSec * f
     val peak = maxOf(abs(velocityX), abs(velocityY)).toDouble()
-    if (peak <= cap) {
-      setFriction(base)
-      return velocityX to velocityY
-    }
-    // Speed-limit model: lower friction by sqrt(cap/peak) so the fling
-    // distance feels natural rather than truncated by the lower start
-    // velocity alone.
-    val ratio = kotlin.math.sqrt(cap / peak).toFloat()
-    setFriction((base * ratio).coerceAtLeast(MIN_FRICTION))
-    val capInt = if (cap > Int.MAX_VALUE) Int.MAX_VALUE else cap.toInt()
-    val cx = velocityX.coerceIn(-capInt, capInt)
-    val cy = velocityY.coerceIn(-capInt, capInt)
-    return cx to cy
-  }
-
-  companion object {
-    private const val MIN_FRICTION = 0.00005f
+    if (peak <= cap) return velocityX to velocityY
+    val scale = cap / peak
+    return (velocityX * scale).toInt() to (velocityY * scale).toInt()
   }
 }

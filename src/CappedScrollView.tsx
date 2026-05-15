@@ -16,15 +16,17 @@ export type CappedScrollViewProps = ScrollViewProps & {
    * Fling velocity cap as a normalized fraction in [0, 1], or `null` to
    * disable the cap mechanism entirely.
    *
-   *   null / undefined → no capper installed; behaves exactly like a plain
-   *     RN ScrollView. (default)
-   *   1 → capper is installed and set to the platform-native maximum:
-   *     Android uses ViewConfiguration.getScaledMaximumFlingVelocity()
-   *     (~8000 dp/s, scaled to physical px); iOS uses ~6000 pt/s (a typical
-   *     practical human-fling ceiling).
-   *   0 → list cannot fling at all.
-   *   Intermediate values cap proportionally: at 0.25, the peak velocity is
-   *     limited to a quarter of the platform max.
+   * The reference maximum is 8000 dp/s on Android and 8000 pt/s on iOS
+   * (same logical unit), so the same `maxVelocity` value produces the same
+   * visual scroll speed on both platforms.
+   *
+   * - `null` / `undefined` (default) — no capper installed; behaves exactly
+   *   like a plain RN `ScrollView`.
+   * - `1` — capper installed at the reference maximum. Human-paced flings
+   *   pass through untouched.
+   * - `0` — list cannot fling at all.
+   * - `0 < x < 1` — peak fling velocity is clamped to `x × 8000` (dp/s on
+   *   Android, pt/s on iOS). Fling distance scales linearly with `x`.
    */
   maxVelocity?: number | null;
 };

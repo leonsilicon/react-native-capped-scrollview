@@ -37,11 +37,12 @@ static RCTScrollViewComponentView *_Nullable CappedScrollViewFindScrollView(NSIn
   return nil;
 }
 
-@implementation CappedScrollViewVelocityCapper
+// Cross-platform reference for the public 0..1 cap scale: 8000 pt/s on iOS,
+// 8000 dp/s on Android. At maxVelocity=1 the cap exactly matches this value;
+// at 0.5 it is 4000 pt/s, etc.
+static const CGFloat kCappedScrollViewReferenceMaxPtsPerSec = 8000.0;
 
-// Platform max-fling velocity, expressed in points/second. Matches Android's
-// 8000 dp/s reference value to keep the public 0..1 scale platform-agnostic.
-static const CGFloat kCappedScrollViewPlatformMaxPtsPerSec = 8000.0;
+@implementation CappedScrollViewVelocityCapper
 
 - (void)scrollViewWillEndDragging:(UIScrollView *)scrollView
                      withVelocity:(CGPoint)velocity
@@ -56,25 +57,25 @@ static const CGFloat kCappedScrollViewPlatformMaxPtsPerSec = 8000.0;
     return;
   }
 
-  // UIScrollView delivers velocity in points-per-millisecond; the platform-
-  // max constant is points/second.
-  CGFloat capPerMs = (kCappedScrollViewPlatformMaxPtsPerSec * fraction) / 1000.0;
+  // UIScrollView reports velocity in points-per-millisecond.
+  CGFloat capPerMs = (kCappedScrollViewReferenceMaxPtsPerSec * fraction) / 1000.0;
   CGFloat peak = MAX(fabs(velocity.x), fabs(velocity.y));
   if (peak <= capPerMs) {
+    // Natural fling already within the cap — leave it untouched.
     return;
   }
 
-  // Speed-limit model: shrink the fling target so peak velocity tapers to
-  // `cap`. Using sqrt(cap/peak) keeps the resulting fling distance feeling
-  // natural rather than abruptly short.
-  CGFloat scale = sqrt(capPerMs / peak);
+  // Speed-limit model: scale the predicted target offset toward current by
+  // (cap / peak). Linear scaling here means the fling distance is exactly
+  // proportional to how much we've clamped peak velocity, matching the
+  // Android behaviour (which clamps `velocityY` to `cap` directly).
+  CGFloat scale = capPerMs / peak;
   CGPoint current = scrollView.contentOffset;
   CGPoint target = *targetContentOffset;
   target.x = current.x + (target.x - current.x) * scale;
   target.y = current.y + (target.y - current.y) * scale;
   *targetContentOffset = target;
 }
-
 
 @end
 

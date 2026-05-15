@@ -6,28 +6,43 @@ the visual scroll speed inside a comfortable, readable range — long-form
 content, kiosk-style UIs, accessibility modes — without disabling momentum
 entirely.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/leonsilicon/react-native-capped-scrollview/main/scrollview-capped.gif" width="320" alt="Side-by-side demo: capped column on the left flings at a controlled speed while the plain ScrollView on the right coasts naturally." />
+</p>
+
 ## Installation
 
 ```sh
 npm install react-native-capped-scrollview
+# or
+yarn add react-native-capped-scrollview
+# or
+pnpm add react-native-capped-scrollview
 ```
 
-Requires the New Architecture (Fabric + TurboModules). Tested against
-React Native 0.83.
+Then on iOS run `pod install` inside the `ios/` directory (or `npx expo prebuild` if you're on Expo). Android picks the library up automatically via autolinking.
+
+Requires the New Architecture (Fabric + TurboModules). Tested against React Native 0.83; should work on any RN ≥ 0.80.
 
 ## Usage
 
 ```tsx
 import { CappedScrollView } from 'react-native-capped-scrollview';
 
-<CappedScrollView maxVelocity={0.25}>
-  {/* same API as <ScrollView> */}
-</CappedScrollView>;
+export function MyList() {
+  return (
+    <CappedScrollView maxVelocity={0.25} style={{ flex: 1 }}>
+      {items.map((item) => (
+        <Row key={item.id} item={item} />
+      ))}
+    </CappedScrollView>
+  );
+}
 ```
 
-`CappedScrollView` accepts every prop the built-in `ScrollView` accepts.
-Internally it renders an RN `ScrollView` and attaches a native fling
-interceptor when `maxVelocity` is set.
+`CappedScrollView` accepts every prop the built-in `ScrollView` accepts (it renders one under the hood) and adds a single new prop, `maxVelocity`.
+
+The GIF above is the example app from `example/` — a `CappedScrollView` on the left and a plain `ScrollView` on the right being flung with the same gesture. Run it with `yarn example ios` or `yarn example android`.
 
 ## API
 
@@ -35,19 +50,19 @@ interceptor when `maxVelocity` is set.
 
 Normalized fling-velocity cap.
 
-| Value           | Behaviour                                                                                                                                                                                          |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `null`/omitted  | No capper installed. Behaves exactly like a plain `ScrollView`. **Default.**                                                                                                                       |
-| `0`             | List cannot fling at all. Drag still works; releasing the finger stops the scroll dead.                                                                                                            |
-| `1`             | Capper installed but set to the platform's own maximum fling velocity. Functionally identical to natural scroll for human-paced flings; faster-than-natural programmatic flings get clamped.       |
-| `0 < x < 1`     | Peak fling velocity is clamped to `x × platformMax`. The fling distance scales with `√x` so flings don't feel abruptly truncated — they coast a bit further than a simple velocity clamp would.   |
+| Value          | Behaviour                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `null`/omitted | No capper installed. Behaves exactly like a plain `ScrollView`. **Default.**                                                                          |
+| `0`            | List cannot fling. Drag still works; releasing the finger stops the scroll dead.                                                                      |
+| `1`            | Capper installed but set to the reference maximum. Human-paced flings pass through untouched; only faster-than-human programmatic flings get clamped. |
+| `0 < x < 1`    | Peak fling velocity is clamped to `x × 8000 dp/s` on Android (`x × 8000 pt/s` on iOS). The two units are identical, so the cap on each platform corresponds to the same logical scroll speed.       |
 
-The **platform max** is:
+The reference max is **8000 dp/s** on Android (scaled to physical pixels via `displayMetrics.density`) and **8000 pt/s** on iOS. Because a `dp` and a `pt` are the same logical unit, the same `maxVelocity` value applies the same peak-velocity cap on both platforms.
 
-- **Android** — `ViewConfiguration.get(context).getScaledMaximumFlingVelocity()`. This is the system constant Android already uses to clamp every fling on the platform; on a typical xhdpi device it's around 16 000 px/s (8000 dp/s scaled to 2× density).
-- **iOS** — 8000 pt/s. iOS has no system-imposed maximum, so the library picks a value matched to Android's reference number for consistency. In practice a hard human swipe peaks around 3 000–6 000 pt/s, so `maxVelocity={1}` is mostly transparent and starts mattering for programmatic or unusually fast flings.
+> [!NOTE]
+> The cap controls *peak velocity*, not fling distance. iOS's `UIScrollView` decelerates exponentially while Android's `OverScroller` uses a spline whose distance is roughly `velocity^1.7`, so a single `maxVelocity` value produces a similar starting speed on both platforms but Android's fling will cover proportionally less distance than iOS's. If you need pixel-for-pixel cross-platform parity, drive the scroll yourself via `scrollTo` with an animation library.
 
-The distinction between `null` and `1` is intentional: at `1` the cap *mechanism* is wired up (so future runtime changes via state are instant), whereas `null` skips the install entirely (the scroll view is byte-for-byte identical to RN's default).
+The distinction between `null` and `1` is intentional: at `1` the cap mechanism is wired up (so future runtime changes via state are instant), whereas `null` skips the install entirely (the scroll view is byte-for-byte identical to RN's default).
 
 ### Ref
 
@@ -71,9 +86,9 @@ Once found, the module attaches a `UIScrollViewDelegate` proxy to the scroll vie
 
 The proxy implements `scrollViewWillEndDragging:withVelocity:targetContentOffset:`. UIScrollView reports velocity in points-per-millisecond and accepts an `inout` target offset. The proxy:
 
-1. Compares the requested peak velocity to `fraction × 8000 pt/s` (converted to pt/ms).
-2. If the user's fling is already within the cap, leaves everything untouched (no added friction).
-3. Otherwise scales the target offset by `√(cap / peak)` so the resulting fling distance feels natural rather than truncated to a tiny coast.
+1. Computes `cap = fraction × 8000 pt/s` (converted to pt/ms to match UIScrollView's units).
+2. If the user's fling is already within `cap`, leaves the target untouched.
+3. Otherwise multiplies `(target − current)` by `cap / peak`, which produces a fling whose peak velocity is exactly `cap` and whose distance is linearly proportional to how much the velocity was clamped.
 
 When `maxVelocity` becomes `null`, the proxy is removed via `[splitter removeDelegate:]` — the scroll view returns to its exact default state.
 
@@ -85,10 +100,9 @@ Once the `ReactScrollView` is found, the module replaces its `OverScroller` (And
 
 The replacement scroller:
 
-1. On every fling, reads the user's current `decelerationRate` off `view.reactScrollViewScrollState.decelerationRate` so the user's `decelerationRate` prop is still honoured after the swap.
-2. Computes `cap = fraction × ViewConfiguration.getScaledMaximumFlingVelocity()`.
-3. If the requested fling already fits the cap, applies the base friction and forwards the fling unmodified.
-4. Otherwise lowers friction by `√(cap / peak)` and clamps the start velocity to `cap`, then calls `super.fling(...)`. Lowering friction sub-linearly stretches the fling duration enough that the lower-velocity fling still covers a reasonable distance instead of stopping abruptly.
+1. Computes `cap = fraction × 8000 dp/s × displayMetrics.density` (matching the iOS reference of 8000 pt/s — same numeric value, same logical unit).
+2. If the requested fling already fits the cap, forwards the fling unmodified.
+3. Otherwise scales both `velocityX` and `velocityY` by `cap / peak` and calls `super.fling(...)`. The framework's deceleration physics then run from the clamped start velocity, producing a fling whose peak velocity is exactly `cap`. Distance is governed by `OverScroller`'s spline (≈ `velocity^1.7`), so fast flings end up coasting somewhat less than the equivalent iOS fling.
 
 When `maxVelocity` becomes `null`, the module restores the original `OverScroller` it captured at install time, so the scroll view returns to its exact default state.
 
