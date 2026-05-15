@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { CappedScrollView } from 'react-native-capped-scrollview';
 
-const ROW_COUNT = 20000;
+const ROW_COUNT = 2000;
 const CAP_OPTIONS = [null, 0, 0.001, 0.01, 0.1, 0.25, 1] as const;
 
 type ScrollLoggerProps = {
