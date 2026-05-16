@@ -1,6 +1,6 @@
 {
   "name": "react-native-capped-scrollview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Drop-in React Native ScrollView that caps fling velocity via a 0-1 maxVelocity prop. Fabric + TurboModules, iOS and Android.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
