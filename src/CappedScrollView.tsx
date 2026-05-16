@@ -1,17 +1,11 @@
-import {
-  forwardRef,
-  useEffect,
-  useRef,
-  useImperativeHandle,
-  type ComponentRef,
-  type Ref,
-} from 'react';
+import { useEffect, useRef, type ComponentRef, type Ref } from 'react';
 import { ScrollView, type ScrollViewProps } from 'react-native';
 import NativeCappedScrollView from './NativeCappedScrollView';
 
 export type CappedScrollViewRef = ComponentRef<typeof ScrollView>;
 
 export type CappedScrollViewProps = ScrollViewProps & {
+  ref?: Ref<CappedScrollViewRef>;
   /**
    * Fling velocity cap as a normalized fraction in [0, 1], or `null` to
    * disable the cap mechanism entirely.
@@ -36,13 +30,12 @@ export type CappedScrollViewProps = ScrollViewProps & {
 // public [0, 1] range, so this is unambiguous on the native side.
 const NO_CAP_SENTINEL = -1;
 
-export const CappedScrollView = forwardRef(function CappedScrollView(
-  { maxVelocity, ...rest }: CappedScrollViewProps,
-  ref: Ref<CappedScrollViewRef>
-) {
+export function CappedScrollView({
+  ref,
+  maxVelocity,
+  ...rest
+}: CappedScrollViewProps) {
   const innerRef = useRef<CappedScrollViewRef | null>(null);
-
-  useImperativeHandle(ref, () => innerRef.current as CappedScrollViewRef);
 
   useEffect(() => {
     const handle = innerRef.current?.getScrollableNode?.();
@@ -53,5 +46,17 @@ export const CappedScrollView = forwardRef(function CappedScrollView(
     NativeCappedScrollView.setMaxVelocity(handle, value);
   }, [maxVelocity]);
 
-  return <ScrollView ref={innerRef} {...rest} />;
-});
+  return (
+    <ScrollView
+      ref={(node) => {
+        innerRef.current = node;
+        if (typeof ref === 'function') {
+          ref(node);
+        } else if (ref != null) {
+          ref.current = node;
+        }
+      }}
+      {...rest}
+    />
+  );
+}
