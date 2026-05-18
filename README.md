@@ -24,6 +24,10 @@ Then on iOS run `pod install` inside the `ios/` directory (or `npx expo prebuild
 
 Requires the New Architecture (Fabric + TurboModules). Tested against React Native 0.83; should work on any RN ≥ 0.80.
 
+### Web (react-native-web)
+
+The library ships a web stub so it won't crash bundlers targeting `react-native-web`. On web, `CappedScrollView` renders a plain `ScrollView` and the `maxVelocity` prop is accepted but ignored — there's no browser API to intercept fling/inertia velocity without replacing native scrolling wholesale, which would break accessibility and the "drop-in `ScrollView`" contract. Use the prop on iOS/Android; treat it as a no-op on web.
+
 ## Usage
 
 ```tsx
